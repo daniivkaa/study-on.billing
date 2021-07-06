@@ -14,6 +14,8 @@ services:
     links:
       - php
   postgres:
+    ports:
+      - "5432:5432"
     image: postgres:alpine
     volumes:
       - postgres:/var/lib/postgresql/data
