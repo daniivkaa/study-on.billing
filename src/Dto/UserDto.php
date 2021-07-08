@@ -27,4 +27,14 @@ class UserDto
      * )
      */
     public string $password;
+
+    public function getEmail(): ?string
+    {
+        return $this->username;
+    }
+
+    public function getPassword(): string
+    {
+        return $this->password;
+    }
 }
