@@ -14,9 +14,8 @@ use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
 use JMS\Serializer\SerializerBuilder;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Component\Security\Core\User\UserProviderInterface;
 use Firebase\JWT\JWT;
-use Symfony\Component\DependencyInjection\ParameterBag\ContainerBagInterface;
+use Lexik\Bundle\JWTAuthenticationBundle\TokenExtractor\AuthorizationHeaderTokenExtractor;
 
 class ApiController extends AbstractController
 {
@@ -72,52 +71,44 @@ class ApiController extends AbstractController
 
     /**
      * @Route("/api/v1/users/current", name="user")
+     * @throws \Lexik\Bundle\JWTAuthenticationBundle\Exception\JWTDecodeFailureException
      */
-    public function getUserByToken(UserProviderInterface $userProvider, Request $request, EntityManagerInterface $em, ContainerBagInterface $params): Response
+    public function getUserByToken(Request $request, EntityManagerInterface $em): Response
     {
         try {
-            $credentials = $request->headers->get('Authorization');
-            $credentials = str_replace('Bearer ', '', $credentials);
-            $tokenParts = explode(".", $credentials);
-            $tokenHeader = base64_decode($tokenParts[0]);
-            $tokenPayload = base64_decode($tokenParts[1]);
-
-            $jwtHeader = json_decode($tokenHeader);
-            $jwtPayload = json_decode($tokenPayload);
-
-            $public_key = "-----BEGIN PUBLIC KEY-----
-MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA5U17kstwZ1xlwrHGuaZ2
-9x4W2qAIRT91mQo7zVluwRObJlmzDQgBHDZihYaWTZnrKhOXhxlnR88ul562NiGr
-k1s9e21cn7iZRjnPGrCKtHBz+kGnKaspDT3J4L0q6x/EJZCgJBLl9VRVsabJkZQA
-AyAQuqNCVJIASjpRl+7W1/bC+E20Qlm2taDjgUR8YQuFeN7eeDBrbluA7m8I6OtB
-SOJLYnwD1NBHfLVMZSSEp6WLYZlyWP4gD8YQqxB647+jpNCTBdXLENn36ogpYRBz
-oTAfFOtdmAZyysXWoLUiRzZ3AW+H2aFYDxDw8MOmHgeK+uRU54BU8Q8GmFGZmZFR
-Hsw0cHqpiKIAL5Jw93gS+jZMYliPWpOJu/71fBAECZ4Wih0WM66PifblySmoFBGA
-mTez71QxBhj12SYzxx4Bp2iyWiX4e6+hoKcZxoT1VgTd4BZBMDMtDrbhwMnECNC7
-6PtBIxEWJ1Xus/eSnk/B5RDqSxjoHHPqQ2Ln7vqLuXRh0OJ7j5PKFEk7Jchwt3NJ
-gSx0GSYM+EOWpriECs43vsNn2VujKjX9S0hT9QFtwh1UvxfYQ3H/a9zJeRPckTN+
-V36qauUjJudFpxQmGEoiRu9XfiCi3WQPmcdPyJkKtPu0vLeXsAcX0DkaRh+7qa2r
-p/vcpalpB1k46g5G75hPgLcCAwEAAQ==
------END PUBLIC KEY-----";
-
-            $jwt = (array)JWT::decode(
-                $credentials,
-                $public_key,
-                ['RS256']
+            $extractor = new AuthorizationHeaderTokenExtractor(
+                'Bearer',
+                'Authorization'
             );
 
+            $token = $extractor->extract($request);
+
+            $dir = $this->container->get('parameter_bag')->get('public_key');
+            $public_key = file_get_contents($dir);
+
+            $algorithm = $this->container->get('parameter_bag')->get('jwt_algorithm');
+            try {
+                $jwt = (array)JWT::decode(
+                    $token,
+                    $public_key,
+                    [$algorithm]
+                );
+            } catch (\Exception $exception) {
+                return new JsonResponse(["Error" => "JWT not valid"], 400);
+            }
+
             $users = $em->getRepository(User::class)->findOneBy([
-                'email' => $jwtPayload->username,
+                'email' => $jwt['username']
             ]);
             $balance = $users->getBalance();
 
             return new JsonResponse([
-                "username" => $jwtPayload->username,
-                "roles" => $jwtPayload->roles,
+                "username" => $jwt['username'],
+                "roles" => $jwt['roles'],
                 "balance" => $balance,
-            ]);
+            ], 200);
         } catch (\Exception $exception) {
-            return new JsonResponse(["error" => "error"], 200);
+            return new JsonResponse(["error" => "Server error"], 500);
         }
     }
 }
