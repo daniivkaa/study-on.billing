@@ -16,11 +16,34 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Doctrine\ORM\EntityManagerInterface;
 use Firebase\JWT\JWT;
 use Lexik\Bundle\JWTAuthenticationBundle\TokenExtractor\AuthorizationHeaderTokenExtractor;
+use Nelmio\ApiDocBundle\Annotation\Model;
+use Nelmio\ApiDocBundle\Annotation\Security;
+use OpenApi\Annotations as OA;
 
 class ApiController extends AbstractController
 {
 
     /**
+     * @OA\Post (
+     * @OA\RequestBody(
+     *     request="order",
+     *     description="Order data in JSON format",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="username", type="string"),
+     *        @OA\Property(property="password", type="string"),
+     *     ),
+     * ),
+     *
+     * @OA\Response(
+     *     response=200,
+     *     description="Register successfull",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="token", type="string"),
+     *     )
+     * )
+     * )
      * @Route("/api/v1/auth", name="api")
      */
     public function login(): Response
@@ -28,6 +51,26 @@ class ApiController extends AbstractController
     }
 
     /**
+     * @OA\Post (
+     * @OA\RequestBody(
+     *     request="order",
+     *     description="Order data in JSON format",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="username", type="string"),
+     *        @OA\Property(property="password", type="string"),
+     *     ),
+     * ),
+     *
+     * @OA\Response(
+     *     response=201,
+     *     description="Register successfull",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="token", type="string"),
+     *     )
+     * )
+     * )
      * @Route("/api/v1/register", name="register")
      */
     public function register(Request $request, UserPasswordHasherInterface $hash, JWTTokenManagerInterface $JWTManager, ValidatorInterface $validator): Response
@@ -70,8 +113,23 @@ class ApiController extends AbstractController
     }
 
     /**
+     * @OA\Parameter(
+     *     name="Authorization",
+     *     in="header",
+     *     description="The field used to order rewards",
+     *     @OA\Schema(type="string")
+     * )
+     * @OA\Response(
+     *     response=200,
+     *     description="Returns the rewards of an user",
+     *     @OA\JsonContent(
+     *        type="array",
+     *        @OA\Items(ref=@Model(type=User::class, groups={"full"}))
+     *     )
+     * )
+     * @OA\Tag(name="rewards")
+     * @Security(name="Bearer")
      * @Route("/api/v1/users/current", name="user")
-     * @throws \Lexik\Bundle\JWTAuthenticationBundle\Exception\JWTDecodeFailureException
      */
     public function getUserByToken(Request $request, EntityManagerInterface $em): Response
     {
