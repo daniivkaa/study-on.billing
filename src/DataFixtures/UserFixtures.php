@@ -14,6 +14,7 @@ class UserFixtures extends Fixture
     public function __construct(UserPasswordHasherInterface $hash)
     {
         $this->hash = $hash;
+        $this->balance = 0;
     }
 
     public function load(ObjectManager $manager): void

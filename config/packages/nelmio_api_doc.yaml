@@ -3,16 +3,19 @@ nelmio_api_doc:
         servers:
             - url: http://billing.study-on.local:82
               description: API over HTTP
+
         info:
             title: Stady-on.BILLING
             description: Billing servise for study-on!
             version: 1.0.0
         components:
             securitySchemes:
-                Bearer:
+                bearerAuth:
                     type: http
                     scheme: bearer
                     bearerFormat: JWT
-                    name: Authorization
         security:
-            - Bearer: []
+            - bearerAuth: [ ]
+    areas:
+        default:
+            path_patterns: [ ^/api/v1/ ]

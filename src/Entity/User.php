@@ -43,6 +43,11 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     private $balance;
 
+    public function __construct()
+    {
+        $this->balance = 0;
+    }
+
     public function getId(): ?int
     {
         return $this->id;
@@ -132,19 +137,11 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         // $this->plainPassword = null;
     }
 
-    public static function fromDto(UserDto $userDto, UserPasswordHasherInterface $hash): object
+    public static function fromDto(UserDto $dto): self
     {
-        $user = new self();
-
-        $username = $userDto->username;
-        $password = $hash->hashPassword($user, $userDto->password);
-
-        $user
-            ->setEmail($username)
-            ->setPassword($password)
-            ->setBalance(0)
-            ;
-
+        $user = new self;
+        $user->setEmail($dto->getEmail());
+        $user->setPassword($dto->getPassword());
         return $user;
     }
 
@@ -155,8 +152,6 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
     public function setBalance(float $balance): self
     {
-        $this->balance = $balance;
-
         return $this;
     }
 }

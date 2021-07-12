@@ -2,23 +2,28 @@
 
 namespace App\Controller;
 
-use App\Dto\UserDto;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
-use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
-use App\Entity\User;
-use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
-use JMS\Serializer\SerializerBuilder;
-use Symfony\Component\Validator\Validator\ValidatorInterface;
-use Doctrine\ORM\EntityManagerInterface;
-use Firebase\JWT\JWT;
 use Lexik\Bundle\JWTAuthenticationBundle\TokenExtractor\AuthorizationHeaderTokenExtractor;
-use Nelmio\ApiDocBundle\Annotation\Model;
-use Nelmio\ApiDocBundle\Annotation\Security;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use App\Entity\User;
+use App\Dto\UserDto;
+use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Routing\Annotation\Route;
+use JMS\Serializer\SerializerBuilder;
+use Firebase\JWT\JWT;
 use OpenApi\Annotations as OA;
+use Nelmio\ApiDocBundle\Annotation\Security;
+use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
+use Symfony\Component\Validator\ConstraintViolation;
+use Doctrine\ORM\EntityManagerInterface;
+
+/**
+* Class ApiController
+ * @package App\Controller
+*/
 
 class ApiController extends AbstractController
 {
@@ -34,6 +39,7 @@ class ApiController extends AbstractController
      *        @OA\Property(property="password", type="string"),
      *     ),
      * ),
+     * )
      *
      * @OA\Response(
      *     response=200,
@@ -43,8 +49,8 @@ class ApiController extends AbstractController
      *        @OA\Property(property="token", type="string"),
      *     )
      * )
-     * )
-     * @Route("/api/v1/auth", name="api")
+     * @OA\Tag(name="user")
+     * @Route("/api/v1/auth", name="login", methods={"POST"})
      */
     public function login(): Response
     {
@@ -61,6 +67,7 @@ class ApiController extends AbstractController
      *        @OA\Property(property="password", type="string"),
      *     ),
      * ),
+     * )
      *
      * @OA\Response(
      *     response=201,
@@ -70,38 +77,36 @@ class ApiController extends AbstractController
      *        @OA\Property(property="token", type="string"),
      *     )
      * )
-     * )
-     * @Route("/api/v1/register", name="register")
+     * @OA\Tag(name="user")
+     * @Route("/api/v1/register", name="register",  methods={"POST"})
      */
-    public function register(Request $request, UserPasswordHasherInterface $hash, JWTTokenManagerInterface $JWTManager, ValidatorInterface $validator): Response
+
+    public function register(Request $request, UserPasswordHasherInterface $hash, JWTTokenManagerInterface $JWTManager, ValidatorInterface $validator, EntityManagerInterface $em): JsonResponse
     {
-
         $serializer = SerializerBuilder::create()->build();
-
-        $userDto = $serializer->deserialize($request->getContent(), UserDto::class, 'json');
-
-        $em = $this->getDoctrine()->getManager();
+        $dto = $serializer->deserialize($request->getContent(), UserDto::class, 'json');
 
         $errorsResponse = [];
 
-        /** @var ConstraintViolation $violation */
-        foreach ($validator->validate($userDto) as $violation) {
+        /* @var ConstraintViolation $violation */
+        foreach ($validator->validate($dto) as $violation) {
             $errorsResponse[] = sprintf('%s: %s', $violation->getPropertyPath(), $violation->getMessage());
         }
 
         $users = $em->getRepository(User::class)->findBy([
-            'email' => $userDto->getEmail(),
+            'email' => $dto->getEmail(),
         ]);
 
         if (count($users) > 0) {
-            $errorsResponse[] = sprintf('This email %s are used', $userDto->getEmail());
+            $errorsResponse[] = sprintf('This email %s are used', $dto->getEmail());
         }
 
         if (!empty($errorsResponse)) {
             return new JsonResponse($errorsResponse, 500);
         }
 
-        $user = User::fromDto($userDto, $hash);
+        $user = User::fromDto($dto);
+        $user->setPassword($hash->hashPassword($user, $dto->getPassword()));
         $em->persist($user);
         $em->flush();
 
@@ -113,23 +118,19 @@ class ApiController extends AbstractController
     }
 
     /**
-     * @OA\Parameter(
-     *     name="Authorization",
-     *     in="header",
-     *     description="The field used to order rewards",
-     *     @OA\Schema(type="string")
-     * )
      * @OA\Response(
      *     response=200,
-     *     description="Returns the rewards of an user",
+     *     description="Register successfull",
      *     @OA\JsonContent(
-     *        type="array",
-     *        @OA\Items(ref=@Model(type=User::class, groups={"full"}))
+     *        type="object",
+     *        @OA\Property(property="username", type="string"),
+     *        @OA\Property(property="role", type="string"),
+     *        @OA\Property(property="balance", type="string")
      *     )
      * )
-     * @OA\Tag(name="rewards")
-     * @Security(name="Bearer")
-     * @Route("/api/v1/users/current", name="user")
+     * @Security(name="bearerAuth")
+     * @OA\Tag(name="user")
+     * @Route("/api/v1/users/current", name="user", methods = "GET")
      */
     public function getUserByToken(Request $request, EntityManagerInterface $em): Response
     {
@@ -138,10 +139,9 @@ class ApiController extends AbstractController
                 'Bearer',
                 'Authorization'
             );
-
             $token = $extractor->extract($request);
 
-            $dir = $this->container->get('parameter_bag')->get('public_key');
+            $dir = $this->container->get('parameter_bag')->get('jwt_public_key');
             $public_key = file_get_contents($dir);
 
             $algorithm = $this->container->get('parameter_bag')->get('jwt_algorithm');
@@ -166,7 +166,7 @@ class ApiController extends AbstractController
                 "balance" => $balance,
             ], 200);
         } catch (\Exception $exception) {
-            return new JsonResponse(["error" => "Server error"], 500);
+            return new JsonResponse(["Error" => "Server error"], 500);
         }
     }
 }
