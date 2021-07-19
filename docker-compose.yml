@@ -4,6 +4,7 @@ volumes:
 services:
   nginx:
     image: nginx:alpine
+    container_name: billing.study-on.local
     working_dir: /app
     volumes:
       - ${PWD}:/app
@@ -15,7 +16,7 @@ services:
       - php
   postgres:
     ports:
-      - "5432:5432"
+      - "5433:5432"
     image: postgres:alpine
     volumes:
       - postgres:/var/lib/postgresql/data
