@@ -160,6 +160,8 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
     public function setBalance(float $balance): self
     {
+        $this->balance = $balance;
+
         return $this;
     }
 

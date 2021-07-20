@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 
+use App\Service\UserService;
 use Gesdinet\JWTRefreshTokenBundle\Service\RefreshToken;
 use Lexik\Bundle\JWTAuthenticationBundle\TokenExtractor\AuthorizationHeaderTokenExtractor;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -30,6 +31,12 @@ use Gesdinet\JWTRefreshTokenBundle\Model\RefreshTokenManagerInterface;
 
 class ApiController extends AbstractController
 {
+
+    private UserService $userService;
+
+    public function __construct(UserService $userService){
+        $this->userService = $userService;
+    }
 
     /**
      * @OA\Post (
@@ -185,28 +192,16 @@ class ApiController extends AbstractController
             );
             $token = $extractor->extract($request);
 
-            $dir = $this->container->get('parameter_bag')->get('jwt_public_key');
-            $public_key = file_get_contents($dir);
-
-            $algorithm = $this->container->get('parameter_bag')->get('jwt_algorithm');
-            try {
-                $jwt = (array)JWT::decode(
-                    $token,
-                    $public_key,
-                    [$algorithm]
-                );
-            } catch (\Exception $exception) {
-                return new JsonResponse(["Error" => "JWT not valid"], 400);
+            $response = $this->userService->UserByToken($token);
+            if(is_array($response)){
+                return new JsonResponse($response, 500);
             }
 
-            $users = $em->getRepository(User::class)->findOneBy([
-                'email' => $jwt['username']
-            ]);
-            $balance = $users->getBalance();
+            $balance = $response->getBalance();
 
             return new JsonResponse([
-                "username" => $jwt['username'],
-                "roles" => $jwt['roles'],
+                "username" => $response->getEmail(),
+                "roles" => $response->getRoles(),
                 "balance" => $balance,
             ], 200);
         } catch (\Exception $exception) {

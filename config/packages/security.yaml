@@ -40,6 +40,18 @@ security:
         refresh:
             pattern: ^/api/v1/token/refresh
             stateless: true
+        courses:
+            pattern: ^/api/v1/courses
+            stateless: true
+        courses_pay:
+            pattern: ^/api/v1/courses/pay
+            stateless: true
+        transaction:
+            pattern: ^/api/v1/transaction
+            stateless: true
+        deposite:
+            pattern: ^/api/v1/deposite
+            stateless: true
         main:
             lazy: true
             provider: app_user_provider
@@ -54,7 +66,11 @@ security:
     # Note: Only the *first* access control that matches will be used
     access_control:
         - { path: ^/api/v1/token/refresh, roles: IS_AUTHENTICATED_ANONYMOUSLY }
+        - { path: ^/api/v1/courses/pay, roles: IS_AUTHENTICATED_ANONYMOUSLY }
+        - { path: ^/api/v1/deposite, roles: IS_AUTHENTICATED_ANONYMOUSLY }
+        - { path: ^/api/v1/transaction, roles: IS_AUTHENTICATED_ANONYMOUSLY }
         - { path: ^/api/v1/doc, roles: IS_AUTHENTICATED_ANONYMOUSLY }
+        - { path: ^/api/v1/courses, roles: IS_AUTHENTICATED_ANONYMOUSLY }
         - { path: ^/api/v1/users/current, roles: IS_AUTHENTICATED_ANONYMOUSLY }
         - { path: ^/api/v1/register, roles: IS_AUTHENTICATED_ANONYMOUSLY }
         - { path: ^/api/v1/auth, roles: IS_AUTHENTICATED_ANONYMOUSLY }

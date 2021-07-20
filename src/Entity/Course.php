@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use App\DTO\CourseDto;
 use App\Repository\CourseRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
@@ -113,5 +114,14 @@ class Course
         }
 
         return $this;
+    }
+
+    public static function fromDto(CourseDto $dto): self
+    {
+        $course = new self;
+        $course->setCode($dto->getCode());
+        $course->setType($dto->getType());
+        $course->setPrice($dto->getPrice());
+        return $course;
     }
 }
