@@ -11,7 +11,7 @@ class CourseDto
     /**
     * @Assert\NotBlank(message="Code is mandatory")
     * @Assert\Length(
-    *      min = 5,
+    *      min = 3,
     *      max = 255,
     *      minMessage = "The code has to be at least {{ limit }} chars long",
     *      maxMessage = "The code must be no longer than {{ limit }} more"

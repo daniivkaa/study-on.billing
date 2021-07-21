@@ -52,6 +52,12 @@ security:
         deposite:
             pattern: ^/api/v1/deposite
             stateless: true
+        courses_delete:
+            pattern: ^/api/v1/courses/pay/
+            stateless: true
+        courses_check:
+            pattern: ^/api/v1/courses/check/
+            stateless: true
         main:
             lazy: true
             provider: app_user_provider
@@ -65,6 +71,8 @@ security:
     # Easy way to control access for large sections of your site
     # Note: Only the *first* access control that matches will be used
     access_control:
+        - { path: ^/api/v1/courses/delete/, roles: IS_AUTHENTICATED_ANONYMOUSLY }
+        - { path: ^/api/v1/courses/check/, roles: IS_AUTHENTICATED_ANONYMOUSLY }
         - { path: ^/api/v1/token/refresh, roles: IS_AUTHENTICATED_ANONYMOUSLY }
         - { path: ^/api/v1/courses/pay, roles: IS_AUTHENTICATED_ANONYMOUSLY }
         - { path: ^/api/v1/deposite, roles: IS_AUTHENTICATED_ANONYMOUSLY }

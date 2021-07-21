@@ -36,7 +36,7 @@ class Course
     private $price;
 
     /**
-     * @ORM\OneToMany(targetEntity=Transaction::class, mappedBy="course")
+     * @ORM\OneToMany(targetEntity=Transaction::class, mappedBy="course", cascade={"remove"})
      */
     private $transactions;
 

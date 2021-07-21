@@ -19,6 +19,7 @@ use OpenApi\Annotations as OA;
 use Nelmio\ApiDocBundle\Annotation\Security;
 use Symfony\Component\Validator\ConstraintViolation;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
+use Doctrine\DBAL\Exception;
 
 class CourseApiController extends AbstractController
 {
@@ -40,13 +41,6 @@ class CourseApiController extends AbstractController
      */
     public function index(Request $request, EntityManagerInterface $em): Response
     {
-        $token = $request->headers->get("token");
-
-        $response = $this->userService->UserByToken($token);
-        if(is_array($response)){
-            return new JsonResponse($response, 500);
-        }
-        if ($response->getEmail() !== null){
             $courses = $em->getRepository(Course::class)->findAll();
             $courseForRequest = [];
             foreach($courses as $course){
@@ -57,9 +51,6 @@ class CourseApiController extends AbstractController
                 ];
             }
             return new JsonResponse($courseForRequest, 200);
-        }
-
-        return new JsonResponse(["Error" => "Неизвестная ошибка"], 500);
     }
 
 
@@ -85,14 +76,8 @@ class CourseApiController extends AbstractController
      */
     public function showCoursesByCode(Request $request, EntityManagerInterface $em): Response
     {
-        $token = $request->headers->get("token");
         $code =  $request->attributes->get(['_route_params'][0])['code'];
-        $response = $this->userService->UserByToken($token);
-        if(is_array($response)){
-            return new JsonResponse($response, 500);
-        }
 
-        if ($response->getEmail() !== null){
             $courses = $em->getRepository(Course::class)->findBy(['code' => $code]);
             $courseForRequest = [];
             foreach($courses as $course){
@@ -103,9 +88,6 @@ class CourseApiController extends AbstractController
                 ];
             }
             return new JsonResponse($courseForRequest, 200);
-        }
-
-        return new Response($token);
     }
 
     /**
@@ -155,6 +137,10 @@ class CourseApiController extends AbstractController
             return new JsonResponse($response, 500);
         }
 
+        if(!in_array('ROLE_SUPER_ADMIN', $response->getRoles())){
+            $errorsResponse['message'] = 'У вас недостаточно прав!';
+        }
+
         if (count($course) > 0) {
             $errorsResponse['message'] = sprintf('Курс с таким кодом %s уже существует', $dto->getCode());
         }
@@ -175,6 +161,56 @@ class CourseApiController extends AbstractController
         ];
 
         return new JsonResponse($response, 201);
+    }
+
+    /**
+     * @OA\RequestBody(
+     *     request="order",
+     *     description="Order data in JSON format",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="token", type="string"),
+     *     ),
+     * ),
+     *
+     * @OA\Response(
+     *     response=201,
+     *     description="Course created",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="message", type="string"),
+     *     )
+     * )
+     * @OA\Tag(name="course")
+     * @Route("/api/v1/courses/delete/{code}", name="course_delete",  methods={"POST"})
+     */
+    public function deleteCourse(Request $request, EntityManagerInterface $em): Response
+    {
+        $trans = json_decode($request->getContent(), true);
+        $code =  $request->attributes->get(['_route_params'][0])['code'];
+
+        $response = $this->userService->UserByToken($trans['token']);
+
+        if(is_array($response)){
+            return new JsonResponse($response, 500);
+        }
+
+        if(!in_array('ROLE_SUPER_ADMIN', $response->getRoles())){
+            $errorsResponse['message'] = 'У вас недостаточно прав!';
+            return new JsonResponse($errorsResponse, 500);
+        }
+
+        if ($response->getEmail() !== null){
+            $course = $em->getRepository(Course::class)->findOneBy([
+                'code' => $code,
+            ]);
+            $em->remove($course);
+            $em->flush();
+
+            return new JsonResponse(["Message" => "Курс удален"], 201);
+        }
+
+        return new JsonResponse(["Error" => "Неизвестная ошибка"], 500);
     }
 
 
@@ -226,29 +262,37 @@ class CourseApiController extends AbstractController
             }
 
             $payTime = (new \DateTime())->modify('+1 month');
+            $em->getConnection()->beginTransaction();
 
-            $transaction = new Transaction();
-            $transaction->setBillingUser($response);
-            $transaction->setCourse($course);
-            $transaction->setValue($course->getPrice());
-            $transaction->setOperationType(0);
-            $transaction->setCreatedAt(new \DateTime('now'));
-            $transaction->setPayTime((new \DateTime())->modify('+1 month'));
-            $em->persist($transaction);
+            try {
+                $transaction = new Transaction();
+                $transaction->setBillingUser($response);
+                $transaction->setCourse($course);
+                $transaction->setValue($course->getPrice());
+                $transaction->setOperationType(0);
+                $transaction->setCreatedAt(new \DateTime('now'));
+                $transaction->setPayTime((new \DateTime())->modify('+1 month'));
+                $em->persist($transaction);
 
-            $newBalance = $response->getBalance() - $transaction->getValue();
-            $response->setBalance($newBalance);
-            $em->persist($response);
+                $newBalance = $response->getBalance() - $transaction->getValue();
+                $response->setBalance($newBalance);
+                $em->persist($response);
 
-            $em->flush();
+                $em->flush();
+                $em->getConnection()->commit();
 
-            $response = [
-                'success' => 'true',
-                'course_type' => 'rent',
-                'expires_at' => $payTime
-            ];
+                $response = [
+                    'success' => 'true',
+                    'course_type' => 'rent',
+                    'expires_at' => $payTime
+                ];
 
-            return new JsonResponse($response, 200);
+                return new JsonResponse($response, 200);
+            }
+            catch(Exception $e){
+                $em->getConnection()->rollBack();
+                return new JsonResponse(["Error" => "Невозможно купить курс"], 500);
+            }
         }
 
         return new JsonResponse(["Error" => "Error"], 200);
@@ -299,11 +343,10 @@ class CourseApiController extends AbstractController
             return new JsonResponse($response, 500);
         }
 
-
-
-
         if ($response->getEmail() !== null){
-            $transactions = $em->getRepository(Transaction::class)->findBy(["billing_user" => $response]);
+            $filters['filter']['user'] = $response;
+
+            $transactions = $em->getRepository(Transaction::class)->findByFilters($filters['filter'], $em);
 
             $trunsForRequest = [];
             foreach($transactions as $key => $transaction){
@@ -356,30 +399,92 @@ class CourseApiController extends AbstractController
         }
 
         if ($response->getEmail() !== null){
+            $em->getConnection()->beginTransaction();
 
-            $transaction = new Transaction();
-            $transaction->setBillingUser($response);
-            $transaction->setValue($among);
-            $transaction->setOperationType(1);
-            $transaction->setCreatedAt(new \DateTime('now'));
-            $em->persist($transaction);
+            try{
+                $transaction = new Transaction();
+                $transaction->setBillingUser($response);
+                $transaction->setValue($among);
+                $transaction->setOperationType(1);
+                $transaction->setCreatedAt(new \DateTime('now'));
+                $em->persist($transaction);
 
-            $newBalance = $response->getBalance() + $among;
-            $response->setBalance($newBalance);
-            $em->persist($response);
+                $newBalance = $response->getBalance() + $among;
+                $response->setBalance($newBalance);
+                $em->persist($response);
 
-            $em->flush();
+                $em->flush();
+                $em->getConnection()->commit();
 
-            $response = [
-                'success' => 'true',
-                'course_type' => 'depos',
-                'created_at' => new \DateTime('now')
-            ];
+                $response = [
+                    'success' => 'true',
+                    'course_type' => 'depos',
+                    'created_at' => new \DateTime('now')
+                ];
 
-            return new JsonResponse($response, 200);
+                return new JsonResponse($response, 200);
+            }
+            catch(Exception $e) {
+                $em->getConnection()->rollBack();
+                return new JsonResponse(["Error" => "Невозможно произвести операцию"], 200);
+            }
         }
 
         return new JsonResponse(["Error" => "Error"], 200);
+    }
+
+
+
+    /**
+     * @OA\RequestBody(
+     *     request="order",
+     *     description="Order data in JSON format",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="token", type="string"),
+     *     ),
+     * ),
+     *
+     * @OA\Response(
+     *     response=201,
+     *     description="Course created",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="message", type="string"),
+     *     )
+     * )
+     * @OA\Tag(name="course")
+     * @Route("/api/v1/courses/check/{code}", name="course_check",  methods={"POST"})
+     */
+    public function checkCourse(Request $request, EntityManagerInterface $em): Response
+    {
+        $token = json_decode($request->getContent(), true)["token"];
+        $code =  $request->attributes->get(['_route_params'][0])['code'];
+
+        $response = $this->userService->UserByToken($token);
+
+        if(is_array($response)){
+            return new JsonResponse($response, 500);
+        }
+
+        if ($response->getEmail() !== null){
+            $course = $em->getRepository(Course::class)->findOneBy(['code' => $code]);
+
+            $transactionExist = $em->getRepository(Transaction::class)->findOneBy(['course' => $course, 'billing_user' => $response]);
+
+            if($transactionExist){
+                if($transactionExist->getPayTime() > new \DateTime('now')){
+                    return new JsonResponse(["message" => "Аренда ещё не истекла", "check" => true], 200);
+                }
+            }
+
+            if(!$transactionExist){
+                    return new JsonResponse(["message" => "Курс не куплен", "check" => false], 200);
+            }
+
+        }
+
+        return new JsonResponse(["Error" => "Error"], 500);
     }
 
 
