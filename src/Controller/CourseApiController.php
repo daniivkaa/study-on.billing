@@ -5,10 +5,8 @@ namespace App\Controller;
 use App\Dto\CourseDto;
 use App\Entity\Course;
 use App\Entity\Transaction;
-use App\Entity\User;
 use App\Service\UserService;
 use Doctrine\ORM\EntityManagerInterface;
-use Firebase\JWT\JWT;
 use JMS\Serializer\SerializerBuilder;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -16,7 +14,6 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 use OpenApi\Annotations as OA;
-use Nelmio\ApiDocBundle\Annotation\Security;
 use Symfony\Component\Validator\ConstraintViolation;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Doctrine\DBAL\Exception;
@@ -163,6 +160,87 @@ class CourseApiController extends AbstractController
         return new JsonResponse($response, 201);
     }
 
+
+    /**
+     * @OA\RequestBody(
+     *     request="order",
+     *     description="Order data in JSON format",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="token", type="string"),
+     *        @OA\Property(property="code", type="string"),
+     *        @OA\Property(property="type", type="smallint"),
+     *        @OA\Property(property="price", type="float"),
+     *     @OA\Property(property="title", type="string"),
+     *     ),
+     * ),
+     *
+     * @OA\Response(
+     *     response=201,
+     *     description="Course created",
+     *     @OA\JsonContent(
+     *        type="object",
+     *        @OA\Property(property="message", type="string"),
+     *     )
+     * )
+     * @OA\Tag(name="course")
+     * @Route("/api/v1/courses/edit/{code}", name="course_edit",  methods={"POST"})
+     */
+    public function editCourse(Request $request, ValidatorInterface $validator, EntityManagerInterface $em)
+    {
+        $serializer = SerializerBuilder::create()->build();
+        $dto = $serializer->deserialize($request->getContent(), CourseDto::class, 'json');
+
+        $errorsResponse = [];
+
+        /* @var ConstraintViolation $violation */
+        foreach ($validator->validate($dto) as $violation) {
+            $errorsResponse[] = sprintf('%s: %s', $violation->getPropertyPath(), $violation->getMessage());
+        }
+
+        $token = $dto->getToken();
+
+        $response = $this->userService->UserByToken($token);
+        if(is_array($response)){
+            return new JsonResponse($response, 500);
+        }
+
+        if(!in_array('ROLE_SUPER_ADMIN', $response->getRoles())){
+            $errorsResponse['message'] = 'У вас недостаточно прав!';
+        }
+
+        $code =  $request->attributes->get(['_route_params'][0])['code'];
+        if($code != $dto->getCode()) {
+            $course = $em->getRepository(Course::class)->findBy([
+                'code' => $dto->getCode(),
+            ]);
+
+            if (count($course) > 0) {
+                $errorsResponse['message'] = sprintf('Курс с таким кодом %s уже существует', $dto->getCode());
+            }
+        }
+
+        if (!empty($errorsResponse)) {
+            return new JsonResponse($errorsResponse, 500);
+        }
+
+
+        $course = $em->getRepository(Course::class)->findOneBy([
+            'code' => $code,
+        ]);
+
+        $course = Course::fromDto($dto, $course);
+
+        $em->persist($course);
+        $em->flush();
+
+        $response = [
+            'message' => 'Edit course',
+        ];
+
+        return new JsonResponse($response, 201);
+    }
+
     /**
      * @OA\RequestBody(
      *     request="order",
@@ -249,6 +327,10 @@ class CourseApiController extends AbstractController
         if ($response->getEmail() !== null){
             $course = $em->getRepository(Course::class)->findOneBy(['code' => $code]);
 
+            if($course->getType() === 0){
+                return new JsonResponse(["Error" => "Курс бесплатен, его не возможно купить"], 200);
+            }
+
             if($course->getPrice() > $response->getBalance()){
                 return new JsonResponse(["Error"=> "Денег нет"], 406);
             }
@@ -256,6 +338,9 @@ class CourseApiController extends AbstractController
             $transactionExist = $em->getRepository(Transaction::class)->findOneBy(['course' => $course, 'billing_user' => $response]);
 
             if($transactionExist){
+                if($course->getType() === 1){
+                    return new JsonResponse(["Error" => "Курс уже куплен, невозможно оплатить повторно"], 200);
+                }
                 if($transactionExist->getPayTime() > new \DateTime('now')){
                     return new JsonResponse(["Error" => "Аренда ещё не истекла, невозможно оплатить повторно"], 200);
                 }
@@ -265,13 +350,17 @@ class CourseApiController extends AbstractController
             $em->getConnection()->beginTransaction();
 
             try {
+                $courseType = "buy";
                 $transaction = new Transaction();
                 $transaction->setBillingUser($response);
                 $transaction->setCourse($course);
                 $transaction->setValue($course->getPrice());
                 $transaction->setOperationType(0);
                 $transaction->setCreatedAt(new \DateTime('now'));
-                $transaction->setPayTime((new \DateTime())->modify('+1 month'));
+                if($course->getType() === 2){
+                    $courseType = "rent";
+                    $transaction->setPayTime((new \DateTime())->modify('+1 month'));
+                }
                 $em->persist($transaction);
 
                 $newBalance = $response->getBalance() - $transaction->getValue();
@@ -283,7 +372,7 @@ class CourseApiController extends AbstractController
 
                 $response = [
                     'success' => 'true',
-                    'course_type' => 'rent',
+                    'course_type' => $courseType,
                     'expires_at' => $payTime
                 ];
 
@@ -336,6 +425,7 @@ class CourseApiController extends AbstractController
         $filters = $request->query->all();
 
         $token = $request->headers->get("token");
+        return new Response($token, 200);
 
         $response = $this->userService->UserByToken($token);
 
@@ -470,17 +560,29 @@ class CourseApiController extends AbstractController
         if ($response->getEmail() !== null){
             $course = $em->getRepository(Course::class)->findOneBy(['code' => $code]);
 
+            if($course->getType() === 0){
+                return new JsonResponse(["message" => "Курс бесплатен", "check" => true], 200);
+            }
+
             $transactionExist = $em->getRepository(Transaction::class)->findOneBy(['course' => $course, 'billing_user' => $response]);
 
             if($transactionExist){
+                if($course->getType() === 1){
+                    return new JsonResponse(["message" => "Курс куплен", "check" => true], 200);
+                }
                 if($transactionExist->getPayTime() > new \DateTime('now')){
                     return new JsonResponse(["message" => "Аренда ещё не истекла", "check" => true], 200);
                 }
             }
 
             if(!$transactionExist){
+                if($course->getType() === 1){
                     return new JsonResponse(["message" => "Курс не куплен", "check" => false], 200);
-            }
+                }
+                if($course->getType() === 2){
+                    return new JsonResponse(["message" => "Курс не арендован", "check" => false], 200);
+                }
+           }
 
         }
 

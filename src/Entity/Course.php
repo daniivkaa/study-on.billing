@@ -7,9 +7,11 @@ use App\Repository\CourseRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
+use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 
 /**
  * @ORM\Entity(repositoryClass=CourseRepository::class)
+ * @UniqueEntity(fields={"code"}, message="Курс с таким кодом уже существует")
  */
 class Course
 {
@@ -21,7 +23,7 @@ class Course
     private $id;
 
     /**
-     * @ORM\Column(type="string", length=255)
+     * @ORM\Column(type="string", length=255, unique=true)
      */
     private $code;
 
@@ -39,6 +41,11 @@ class Course
      * @ORM\OneToMany(targetEntity=Transaction::class, mappedBy="course", cascade={"remove"})
      */
     private $transactions;
+
+    /**
+     * @ORM\Column(type="string", length=255)
+     */
+    private $title;
 
     public function __construct()
     {
@@ -116,12 +123,27 @@ class Course
         return $this;
     }
 
-    public static function fromDto(CourseDto $dto): self
+    public static function fromDto(CourseDto $dto, self $course = null): self
     {
-        $course = new self;
+        if(!$course){
+            $course = new self;
+        }
         $course->setCode($dto->getCode());
         $course->setType($dto->getType());
         $course->setPrice($dto->getPrice());
+        $course->setTitle($dto->getTitle());
         return $course;
+    }
+
+    public function getTitle(): ?string
+    {
+        return $this->title;
+    }
+
+    public function setTitle(string $title): self
+    {
+        $this->title = $title;
+
+        return $this;
     }
 }

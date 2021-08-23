@@ -63,7 +63,7 @@ class ApiController extends AbstractController
      * @OA\Tag(name="user")
      * @Route("/api/v1/auth", name="login", methods={"POST"})
      */
-    public function login(): Response
+    public function login(): ?Response
     {
     }
 
@@ -194,7 +194,7 @@ class ApiController extends AbstractController
 
             $response = $this->userService->UserByToken($token);
             if(is_array($response)){
-                return new JsonResponse($response, 500);
+                return new JsonResponse($response, 400);
             }
 
             $balance = $response->getBalance();
